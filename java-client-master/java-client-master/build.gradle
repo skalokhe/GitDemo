@@ -1,0 +1,238 @@
+apply plugin: 'java'
+apply plugin: 'idea'
+apply plugin: 'maven-publish'
+apply plugin: 'eclipse'
+apply plugin: 'jacoco'
+apply plugin: 'checkstyle'
+apply plugin: 'signing'
+
+import org.apache.tools.ant.filters.*
+
+repositories {
+    jcenter()
+    mavenCentral()
+}
+
+buildscript {
+    repositories {
+        jcenter()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.owasp:dependency-check-gradle:5.3.0'
+        classpath 'com.github.jengelman.gradle.plugins:shadow:5.2.0'
+    }
+}
+
+apply plugin: 'org.owasp.dependencycheck'
+apply plugin: 'com.github.johnrengelman.shadow'
+
+configurations {
+    ecj
+    lombok
+}
+
+dependencies {
+    ecj 'org.eclipse.jdt:ecj:3.20.0'
+    lombok 'org.projectlombok:lombok:1.18.12'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+    withJavadocJar()
+    withSourcesJar()
+}
+
+compileJava {
+    def ecjJar = configurations.ecj.singleFile
+    def lombokjar = configurations.lombok.singleFile
+
+    options.fork = true
+    options.fork executable: 'java', jvmArgs: [ '-javaagent:'+lombokjar.path+'=ECJ', '-jar', ecjJar.path, '-cp', lombokjar.path]
+    options.define compilerArgs: [
+            '-encoding', 'utf-8'
+    ]
+}
+
+dependencies {
+    compileOnly('org.projectlombok:lombok:1.18.12')
+    annotationProcessor('org.projectlombok:lombok:1.18.12')
+    compile ("org.seleniumhq.selenium:selenium-java:${project.property('selenium.version')}") {
+        force = true
+
+        exclude group: 'com.google.code.gson'
+        exclude module: 'htmlunit-driver'
+        exclude group: 'net.sourceforge.htmlunit'
+
+    }
+    compile ("org.seleniumhq.selenium:selenium-support:${project.property('selenium.version')}") {
+        force = true
+    }
+    compile ("org.seleniumhq.selenium:selenium-api:${project.property('selenium.version')}") {
+        force = true
+    }
+    compile 'com.google.code.gson:gson:2.8.6'
+    compile 'org.apache.httpcomponents:httpclient:4.5.11'
+    compile 'cglib:cglib:3.3.0'
+    compile 'commons-validator:commons-validator:1.6'
+    compile 'org.apache.commons:commons-lang3:3.9'
+    compile 'commons-io:commons-io:2.6'
+    compile 'org.springframework:spring-context:5.2.3.RELEASE'
+    compile 'org.aspectj:aspectjweaver:1.9.5'
+    compile 'org.slf4j:slf4j-api:1.7.30'
+
+    testCompile 'junit:junit:4.13'
+    testCompile 'org.hamcrest:hamcrest:2.2'
+    testCompile (group: 'io.github.bonigarcia', name: 'webdrivermanager', version: '3.8.1') {
+        exclude group: 'org.seleniumhq.selenium'
+    }
+}
+
+ext {
+    Sources = fileTree("$buildDir/src/main/java").include('**/*.java')
+    Tests = fileTree("$buildDir/src/test/java").include('**/*.java')
+    Docs = file("$buildDir/doc")
+}
+
+dependencyCheck {
+    failBuildOnCVSS=22
+}
+
+jacoco {
+    toolVersion = '0.8.3'
+}
+
+tasks.withType(JacocoReport) {
+    description = 'Generate Jacoco coverage reports after running tests'
+    sourceSets sourceSets.main
+    reports {
+        html.enabled true
+        html.destination file("${buildDir}/Reports/jacoco")
+    }
+}
+jacocoTestReport.dependsOn test
+
+checkstyle {
+    toolVersion = '8.29'
+    configFile = file("$projectDir/google-style.xml")
+    showViolations = true
+    ignoreFailures = false
+}
+checkstyleMain.excludes = ['**/org/openqa/selenium/**']
+
+javadoc {
+    options.addStringOption('encoding', 'UTF-8')
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = 'io.appium'
+            artifactId = 'java-client'
+            version = '7.3.0'
+            from components.java
+            artifact sourcesJar
+            artifact javadocJar
+            pom {
+                name = 'java-client'
+                description = 'Java client for Appium Mobile Webdriver'
+                url = 'http://appium.io'
+                developers {
+                    developer {
+                        name = 'Jonah Stiennon'
+                        email = 'jonahss@gmail.com'
+                        url = 'https://github.com/jonahss'
+                        id = 'jonahss'
+                    }
+                    developer {
+                        name = 'Sergey Tikhomirov'
+                        email = 'tichomirovsergey@gmail.com'
+                        url = 'https://github.com/TikhomirovSergey'
+                        id = 'TikhomirovSergey'
+                    }
+                    developer {
+                        name = 'Srinivasan Sekar'
+                        email = 'srinivasan.sekar1990@gmail.com'
+                        url = 'https://github.com/SrinivasanTarget'
+                        id = 'SrinivasanTarget'
+                    }
+                    developer {
+                        name = 'Mykola Mokhnach'
+                        url = 'https://github.com/mykola-mokhnach'
+                        id = 'mykola-mokhnach'
+                    }
+                }
+                licenses {
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+                scm {
+                    url = 'https://github.com/appium/java-client'
+                    connection = 'scm:git:ssh://git@github.com/appium/java-client.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/appium/java-client.git'
+                    tag = 'HEAD'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            credentials {
+                username "$ossrhUsername"
+                password "$ossrhPassword"
+            }
+            def releasesRepoUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+            def snapshotsRepoUrl = "https://oss.sonatype.org/content/repositories/snapshots/'"
+            url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+        }
+    }
+}
+
+signing {
+    sign publishing.publications.mavenJava
+}
+
+wrapper {
+    gradleVersion = '5.4'
+    distributionType = Wrapper.DistributionType.ALL
+}
+
+processResources {
+    filter ReplaceTokens, tokens: [
+            'selenium.version': project.property('selenium.version')
+    ]
+}
+
+task xcuiTest( type: Test ) {
+    useJUnit()
+    testLogging.showStandardStreams = true
+    testLogging.exceptionFormat = 'full'
+    filter {
+        includeTestsMatching '*.appium.element.generation.ios.*'
+        includeTestsMatching '*.appium.AppiumFluentWaitTest'
+        includeTestsMatching 'io.appium.java_client.ios.*'
+        includeTestsMatching '*.pagefactory_tests.XCUITModeTest'
+        includeTestsMatching '*.pagefactory_tests.widget.tests.combined.*'
+        includeTestsMatching '*.pagefactory_tests.widget.tests.ios.*'
+        includeTestsMatching '*.StartingAppLocallyTest.startingIOSAppWithCapabilitiesAndServiceTest'
+        includeTestsMatching '*.StartingAppLocallyTest.startingIOSAppWithCapabilitiesAndFlagsOnServerSideTest'
+        exclude '**/UIAutomationTest.class'
+        exclude '**/IOSScreenRecordTest.class'
+        exclude '**/ImagesComparisonTest.class'
+    }
+}
+
+task uiAutomationTest( type: Test ) {
+    useJUnit()
+    testLogging.showStandardStreams = true
+    testLogging.exceptionFormat = 'full'
+    filter {
+        includeTestsMatching '*.SettingTest'
+        includeTestsMatching 'io.appium.java_client.android.ClipboardTest'
+        includeTestsMatching '*.AndroidAppStringsTest'
+    }
+}
